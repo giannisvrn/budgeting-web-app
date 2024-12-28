@@ -51,7 +51,25 @@
         <div class="w-full h-[400px] relative">
           <canvas ref="chartRef"></canvas>
         </div>
-        
+
+        <!-- Recent Expenses -->
+        <div class="mt-8">
+          <h3 class="text-lg font-semibold mb-4">5 Newest Expenses</h3>
+          <ul>
+            <li 
+              v-for="expense in latestExpenses" 
+              :key="expense.id" 
+              class="flex justify-between items-center mb-2"
+            >
+              <div>
+                <span class="font-semibold">{{ expense.category }}</span>
+                <span v-if="expense.comment"> - {{ expense.comment }}</span>
+              </div>
+              <div>${{ expense.amount }}</div>
+            </li>
+          </ul>
+        </div>
+
         <!-- Modal -->
         <div v-if="showModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
           <div class="bg-white rounded-2xl w-full max-w-md p-6">
@@ -76,6 +94,11 @@
                 placeholder="Amount" 
                 class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" 
               />
+              <textarea 
+                v-model="newExpense.comment" 
+                placeholder="Optional Comment" 
+                class="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              ></textarea>
             </div>
             <div class="flex gap-3 mt-6">
               <button 
@@ -104,67 +127,56 @@ import Chart from 'chart.js/auto'
 import { format } from 'date-fns'
 import { getAuth, signOut } from 'firebase/auth'
 import { useRouter } from 'vue-router'
-
-// Firebase imports for user-specific data
 import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore'
 import { useToast } from "vue-toastification";
 const toast = useToast();
+const db = getFirestore();
+const auth = getAuth();
+const router = useRouter();
 
-// Firebase setup
-const db = getFirestore()
-const auth = getAuth()
-
-const router = useRouter()
-const showModal = ref(false)
-const chartRef = ref(null)
-const chartInstance = ref(null)
-const newExpense = ref({ category: '', amount: 0 })
-const budget = ref(0) // Budget input
+const showModal = ref(false);
+const chartRef = ref(null);
+const chartInstance = ref(null);
+const newExpense = ref({ category: '', amount: 0, comment: '' });
+const budget = ref(0);
 const categories = ref([
   { id: 'foodCoffee', label: 'Food & Coffee', color: 'rgba(147, 197, 253, 0.8)' },
   { id: 'gambling', label: 'Gambling', color: 'rgba(1, 180, 254, 0.8)' },
   { id: 'supermarket', label: 'Supermarket', color: 'rgba(251, 207, 232, 0.8)' },
   { id: 'entertainment', label: 'Entertainment', color: 'rgba(253, 164, 175, 0.8)' },
   { id: 'shopping', label: 'Shopping', color: 'rgba(252, 211, 77, 0.8)' }
-])
-const expenses = ref([])
-const userId = ref(null) // Current logged-in user ID
+]);
+const expenses = ref([]);
+const userId = ref(null);
 
-// Current Month
-const currentMonth = format(new Date(), 'MMMM yyyy')
+const currentMonth = format(new Date(), 'MMMM yyyy');
+const currentMonthKey = format(new Date(), 'yyyy-MM');
 
-// Get current month and year
-const currentMonthKey = format(new Date(), 'yyyy-MM')
-
-// Fetch user data on mount
 onMounted(async () => {
-  const user = auth.currentUser
+  const user = auth.currentUser;
   if (!user) {
-    router.push('/login')
-    return
+    router.push('/login');
+    return;
   }
-  userId.value = user.uid
-  await loadUserBudgetAndExpenses()
-  updateChart()
-})
+  userId.value = user.uid;
+  await loadUserBudgetAndExpenses();
+  updateChart();
+});
 
-// Load user data (budget and expenses)
 const loadUserBudgetAndExpenses = async () => {
-  if (!userId.value) return
-  const userDoc = doc(db, 'users', userId.value)
-  const userSnapshot = await getDoc(userDoc)
+  if (!userId.value) return;
+  const userDoc = doc(db, 'users', userId.value);
+  const userSnapshot = await getDoc(userDoc);
   if (userSnapshot.exists()) {
-    const data = userSnapshot.data()
-    budget.value = data.budget || 0
-    // Filter expenses for the current month
-    expenses.value = (data.expenses || []).filter(expense => expense.month === currentMonthKey)
+    const data = userSnapshot.data();
+    budget.value = data.budget || 0;
+    expenses.value = (data.expenses || []).filter(expense => expense.month === currentMonthKey);
   }
-}
+};
 
-// Save user data (budget and expenses)
 const saveUserData = async () => {
-  if (!userId.value) return
-  const userDoc = doc(db, 'users', userId.value)
+  if (!userId.value) return;
+  const userDoc = doc(db, 'users', userId.value);
   try {
     await updateDoc(userDoc, {
       budget: budget.value,
@@ -175,41 +187,32 @@ const saveUserData = async () => {
     toast.error("Failed to update budget. Please try again.");
     console.error("Error updating budget:", error);
   }
-}
+};
 
-// Add an expense
 const addExpense = async () => {
   if (newExpense.value.category && newExpense.value.amount > 0) {
-    const existingExpense = expenses.value.find(expense => expense.category === newExpense.value.category)
-    if (existingExpense) {
-      existingExpense.amount += newExpense.value.amount
-    } else {
-      expenses.value.push({
-        category: newExpense.value.category,
-        amount: newExpense.value.amount,
-        month: currentMonthKey // Add month field
-      })
-    }
-    newExpense.value = { category: '', amount: 0 }
-    showModal.value = false
-    updateChart()
-    await saveUserData()
+    expenses.value.push({
+      category: newExpense.value.category,
+      amount: newExpense.value.amount,
+      comment: newExpense.value.comment || null,
+      month: currentMonthKey,
+      id: Date.now() // Unique identifier
+    });
+    newExpense.value = { category: '', amount: 0, comment: '' };
+    showModal.value = false;
+    updateChart();
+    await saveUserData();
   }
-}
+};
 
-// Calculate total amount spent
-const totalSpent = computed(() => expenses.value.reduce((sum, expense) => sum + expense.amount, 0))
+const totalSpent = computed(() => expenses.value.reduce((sum, expense) => sum + expense.amount, 0));
+const percentageSpent = computed(() => budget.value > 0 ? ((totalSpent.value / budget.value) * 100).toFixed(2) : 0);
+const latestExpenses = computed(() => expenses.value.slice(-5).reverse());
 
-// Calculate percentage of budget spent
-const percentageSpent = computed(() => budget.value > 0 ? ((totalSpent.value / budget.value) * 100).toFixed(2) : 0)
-
-// Update the chart
 const updateChart = () => {
   if (chartRef.value) {
-    const ctx = chartRef.value.getContext('2d')
-    if (chartInstance.value) {
-      chartInstance.value.destroy()
-    }
+    const ctx = chartRef.value.getContext('2d');
+    if (chartInstance.value) chartInstance.value.destroy();
     chartInstance.value = new Chart(ctx, {
       type: 'doughnut',
       data: {
@@ -225,17 +228,11 @@ const updateChart = () => {
         responsive: true,
         maintainAspectRatio: false,
         cutout: '75%',
-        layout: {
-          padding: 20
-        },
+        layout: { padding: 20 },
         plugins: {
           legend: {
             position: 'bottom',
-            labels: {
-              padding: 20,
-              usePointStyle: true,
-              font: { size: 14, family: 'system-ui' }
-            }
+            labels: { padding: 20, usePointStyle: true, font: { size: 14, family: 'system-ui' } }
           },
           title: {
             display: true,
@@ -248,26 +245,18 @@ const updateChart = () => {
       plugins: [{
         id: 'centerText',
         beforeDraw: (chart) => {
-          const width = chart.width
-          const height = chart.height
-          const ctx = chart.ctx
-
-          ctx.restore()
-          ctx.font = '500 14px system-ui'
-          ctx.fillStyle = '#6B7280'
-          ctx.textBaseline = 'middle'
-          ctx.textAlign = 'center'
-          ctx.fillText('Total', width / 2, height / 2 - 15)
-
-          ctx.font = '600 24px system-ui'
-          ctx.fillStyle = '#111827'
-          ctx.fillText(`$${totalSpent.value}`, width / 2, height / 2 + 15)
-          ctx.save()
+          const { width, height } = chart;
+          const ctx = chart.ctx;
+          ctx.save();
+          ctx.font = '500 24px system-ui';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = 'rgba(30, 41, 59, 1)';
+          ctx.fillText(`$${totalSpent.value}`, width / 2, height / 2);
         }
       }]
-    })
+    });
   }
-}
+};
 
 // Handle logout
 const handleLogout = async () => {
